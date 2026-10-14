@@ -1,107 +1,110 @@
-import { Request, Response } from 'express'
-import jwt from "jsonwebtoken";
-import { userService } from '../services/user.service';
-import { IJwtPayload } from '../models/JWTPayload';
-import { IUser } from '../models/user.model';
+import { Request, Response, NextFunction } from 'express';
+import * as authService from '../services/auth.service.js';
+import { logger } from '../config/index.js';
+import { requireUserId } from '../middlewares/jwtMiddleware.js';
+import type { PublicUser } from '../models/user.model.js';
+import type { TokenPair } from '../models/jwtpayload.model.js';
+import type {
+  RegisterInput,
+  LoginInput,
+  RefreshTokenBody,
+  ChangePasswordInput,
+} from '../models/auth.model.js';
+import type { IdParam } from '../models/http.js';
 
-const _SECRET: string = 'api+jwt';
-const _REFRESH_SECRET: string = 'refresh+jwt';
+/**
+ * AUTH CONTROLLER
+ * Registro, login, refresh, logout y cambio de contraseña.
+ * - El body ya viene validado por Zod (validatorMiddleware).
+ * - El JWT ya viene DECODIFICADO por jwtMiddleware: aquí solo se
+ *   lee el id del usuario (req.userId o res.locals.userId).
+ * - Los errores se propagan con next(error) al errorHandler.
+ * - `finally` se ejecuta SIEMPRE (éxito o error): útil para trazas.
+ */
 
-function generateAccessToken(username: string): string {
-    const session = { id: username, type: 'access' } as IJwtPayload;
-    return jwt.sign(session, _SECRET, {
-        expiresIn: '15m', // access token dura 15 minutos
-    });
-}
+// POST /api/auth/register -> 201 Created (+ Location del recurso)
+export const register = async (
+  req: Request<unknown, unknown, RegisterInput>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const user: PublicUser = await authService.registerUser(req.body);
+    res.status(201).location(`/api/users/${user._id.toString()}`).json(user);
+  } catch (error) {
+    next(error);
+  } finally {
+    logger.debug('register attempt for %s', req.body.email);
+  }
+};
 
-function generateRefreshToken(username: string): string {
-    const session = { id: username, type: 'refresh' } as IJwtPayload;
-    return jwt.sign(session, _REFRESH_SECRET, {
-        expiresIn: '7d', // refresh token dura 7 días
-    });
-}
+// POST /api/auth/login -> 200 { user, accessToken, refreshToken }
+export const login = async (
+  req: Request<unknown, unknown, LoginInput>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { user, tokens } = await authService.login(req.body);
+    res.status(200).json({ user, ...tokens });
+  } catch (error) {
+    next(error);
+  } finally {
+    logger.debug('login attempt for %s', req.body.email);
+  }
+};
 
-export async function signup(req: Request, res: Response): Promise<Response> {
-    const { username, password } = req.body;
+// POST /api/auth/refresh -> 200 { accessToken, refreshToken }
+// Forma 1: leemos el id que el middleware dejó en `req.userId`.
+export const refresh = async (
+  req: Request<unknown, unknown, RefreshTokenBody>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const userId: string = requireUserId(req.userId);
+    const tokens: TokenPair = await authService.rotateRefreshToken(userId, req.body.refreshToken);
+    res.status(200).json(tokens);
+  } catch (error) {
+    next(error);
+  } finally {
+    logger.debug('refresh requested by %s', req.userId);
+  }
+};
 
-    if (!username || !password) {
-        return res.status(400).json({ message: "Username and password are required" });
-    }
+// POST /api/auth/logout -> 204 No Content
+// Forma 2: leemos el id de `res.locals.userId`.
+export const logout = async (
+  req: Request<unknown, unknown, RefreshTokenBody>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const userId: string = requireUserId(res.locals.userId);
+    await authService.revokeRefreshToken(userId, req.body.refreshToken);
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  } finally {
+    logger.debug('logout requested by %s', res.locals.userId);
+  }
+};
 
-    // Check if user already exists
-    const existingUser = await userService.findOne(username);
-    if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
-    }
-
-    // Create new user
-    const newUser = { username, password } as IUser;
-    const createdUser = await userService.create(newUser);
-
-    // Generate tokens
-    const accessToken = generateAccessToken(username);
-    const refreshToken = generateRefreshToken(username);
-
-    return res.status(201).json({
-        user: createdUser,
-        accessToken,
-        refreshToken
-    });
-}
-
-export async function signin(req: Request, res: Response): Promise<Response> {
-    const { username, password } = req.body;
-
-    if (!username || !password) {
-        return res.status(400).json({ message: "Username and password are required" });
-    }
-
-    const user = await userService.findOne(username);
-    
-    if (!user) {
-        return res.status(400).json({ message: "User Not Found" });
-    }
-
-    if (user.password !== password) {
-        return res.status(401).json({ message: "Invalid Password" });
-    }
-
-    // Generate tokens
-    const accessToken = generateAccessToken(username);
-    const refreshToken = generateRefreshToken(username);
-    
-    return res.json({
-        accessToken,
-        refreshToken
-    });
-}
-
-export async function refresh(req: Request, res: Response): Promise<Response> {
-    const authHeader = req.headers['authorization'];
-    const refreshToken = authHeader && authHeader.split(' ')[1];
-
-    if (!refreshToken) {
-        return res.status(401).json({ message: "Refresh token not provided" });
-    }
-
-    try {
-        const decoded = jwt.verify(refreshToken, _REFRESH_SECRET) as IJwtPayload;
-        
-        if (decoded.type !== 'refresh') {
-            return res.status(401).json({ message: "Invalid token type" });
-        }
-
-        // Verify user exists
-        const user = await userService.findOne(decoded.id);
-        if (!user) {
-            return res.status(404).json({ message: "User not found" });
-        }
-
-        // Generate new access token
-        const accessToken = generateAccessToken(decoded.id);
-        
-        return res.json({ accessToken });
-    } catch (error) {
-        return res.status(401).json({ message: "Invalid refresh token" });
-    }
-}
+// PUT /api/users/:id/password -> 204 No Content
+// `isOwner` ya garantizó que :id === usuario del token.
+export const changePassword = async (
+  req: Request<IdParam, unknown, ChangePasswordInput>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const userId: string = requireUserId(res.locals.userId);
+    const { currentPassword, newPassword } = req.body;
+    await authService.changePassword(userId, currentPassword, newPassword);
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  } finally {
+    logger.debug('password change requested for %s', req.params.id);
+  }
+};

@@ -1,71 +1,139 @@
-### Authentication Tests ###
+@base = http://localhost:4000/api
 
-### Sign up a new user
-# @name signup
-POST http://localhost:4000/api/auth/signup
+### ============================================================
+### AUTH
+### ============================================================
+
+### Registro (201 + Location). El rol lo asigna el servidor.
+# @name register
+POST {{base}}/auth/register
 Content-Type: application/json
 
 {
-    "username": "testuser",
+    "name": "Test",
+    "email": "test@example.com",
     "password": "testpass123"
 }
 
-### Sign in with credentials
-# @name signin
-POST http://localhost:4000/api/auth/signin
+### Registro duplicado (409 CONFLICT)
+POST {{base}}/auth/register
 Content-Type: application/json
 
 {
-    "username": "testuser",
+    "name": "Test",
+    "email": "test@example.com",
+    "password": "testpass123"
+}
+
+### Login (200 { user, accessToken, refreshToken })
+# @name login
+POST {{base}}/auth/login
+Content-Type: application/json
+
+{
+    "email": "test@example.com",
     "password": "testpass123"
 }
 
 ###
-@access_token = {{signin.response.body.accessToken}}
-@refresh_token = {{signin.response.body.refreshToken}}
+@userId = {{login.response.body.user._id}}
+@access_token = {{login.response.body.accessToken}}
+@refresh_token = {{login.response.body.refreshToken}}
 
-### Sign in with predefined user (user1)
-# @name signin_user1
-POST http://localhost:4000/api/auth/signin
+### Login con usuario del seed (Bill, ADMIN)
+POST {{base}}/auth/login
 Content-Type: application/json
 
 {
-    "username": "user1",
-    "password": "password1"
+    "email": "bill@initech.com",
+    "password": "123456"
 }
 
-### Failed sign in (wrong password)
-POST http://localhost:4000/api/auth/signin
+### Login fallido (401 INVALID_CREDENTIALS)
+POST {{base}}/auth/login
 Content-Type: application/json
 
 {
-    "username": "user1",
+    "email": "test@example.com",
     "password": "wrongpassword"
 }
 
-### Refresh Token
-POST http://localhost:4000/api/auth/refresh
+### Refresh: ROTA el refresh token (devuelve un par nuevo).
+### Ejecutarlo dos veces con el mismo token -> 401 TOKEN_REVOKED
+# @name refresh
+POST {{base}}/auth/refresh
 Content-Type: application/json
-Authorization: Bearer {{refresh_token}}
 
-### Users API Tests ###
+{
+    "refreshToken": "{{refresh_token}}"
+}
 
-### Get all users
-GET http://localhost:4000/api/users
+### Logout: revoca el refresh token en la BD (204)
+POST {{base}}/auth/logout
+Content-Type: application/json
 
-### Get specific user
-GET http://localhost:4000/api/users/testuser
+{
+    "refreshToken": "{{refresh.response.body.refreshToken}}"
+}
 
-### Update user
-PUT http://localhost:4000/api/users/testuser
+### Cambio de contraseña: solo el propio usuario (204).
+### Cierra todas sus sesiones (revoca sus refresh tokens).
+PUT {{base}}/users/{{userId}}/password
 Content-Type: application/json
 Authorization: Bearer {{access_token}}
 
 {
-    "username": "testuser",
-    "password": "newpassword789"
+    "currentPassword": "testpass123",
+    "newPassword": "newpass456"
 }
 
-### Delete user
-DELETE http://localhost:4000/api/users/testuser
+### ============================================================
+### USERS (todas requieren access token)
+### ============================================================
+
+### Sin token (401)
+GET {{base}}/users
+
+### Listar usuarios
+GET {{base}}/users
+Authorization: Bearer {{access_token}}
+
+### Filtrar por rol (query param refina la colección)
+GET {{base}}/users?role=ADMIN
+Authorization: Bearer {{access_token}}
+
+### Obtener un usuario
+GET {{base}}/users/{{userId}}
+Authorization: Bearer {{access_token}}
+
+### PUT: reemplaza el recurso entero (name + email)
+PUT {{base}}/users/{{userId}}
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+    "name": "Test Updated",
+    "email": "test@example.com"
+}
+
+### PATCH: modifica una parte
+PATCH {{base}}/users/{{userId}}
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+    "name": "Test Patched"
+}
+
+### PATCH con password -> 422 (la contraseña va por /users/:id/password)
+PATCH {{base}}/users/{{userId}}
+Content-Type: application/json
+Authorization: Bearer {{access_token}}
+
+{
+    "password": "hacked123"
+}
+
+### Eliminar el propio usuario (204)
+DELETE {{base}}/users/{{userId}}
 Authorization: Bearer {{access_token}}

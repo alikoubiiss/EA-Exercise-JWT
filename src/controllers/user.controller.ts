@@ -1,61 +1,80 @@
-import { Request, Response } from 'express'
-import { IUser } from '../models/user.model';
-import { userService } from '../services/user.service';
-import { logger } from '../config';
+import { Request, Response, NextFunction } from 'express';
+import * as userService from '../services/user.service.js';
+import { notFound } from '../errors/ApiError.js';
+import type { PublicUser, UserQuery, UserPatch } from '../models/user.model.js';
+import type { IdParam } from '../models/http.js';
 
-export async function createUser(req: Request, res: Response): Promise<Response> {
-    const { username, password } = req.body;
-    logger.info('Creating user');
+/**
+ * USER CONTROLLER — recurso /users, SIN password.
+ * Los errores nunca se formatean aquí: se lanzan (`throw`) o se pasan
+ * con `next(error)`, y es el error-handling middleware quien decide
+ * el status code y la forma { message, code } de la respuesta.
+ * La creación de usuarios es POST /auth/register (auth.controller).
+ */
 
-    const newUser = { username, password } as IUser;
-    const createdUser = await userService.create(newUser);
-    return res.json(createdUser);
-}
+// GET /api/users?role=
+export const getAllUsers = async (
+  req: Request<unknown, unknown, unknown, UserQuery>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    // req.query ya ha pasado por validate(userQuerySchema, 'query')
+    const users: PublicUser[] = await userService.listAllUsers(req.query);
+    res.status(200).json(users);
+  } catch (error) {
+    next(error);
+  }
+};
 
-export async function getUsers(req: Request, res: Response): Promise<Response> {
-    logger.info('Getting users');
-
-    const users = await userService.findAll();
-    return res.json(users);
-}
-
-export async function getUser(req: Request, res: Response): Promise<Response> {
-    logger.info('Getting user');
-
-    const username = req.params.id;
-    const user = await userService.findOne(username);
-    
+// GET /api/users/:id
+export const getUser = async (
+  req: Request<IdParam>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const user: PublicUser | null = await userService.findUserById(req.params.id);
     if (!user) {
-        return res.status(404).json({ message: "User not found" });
+      throw notFound(`User '${req.params.id}' not found`);
     }
-    
-    return res.json(user);
-}
+    res.status(200).json(user);
+  } catch (error) {
+    next(error);
+  }
+};
 
-export async function deleteUser(req: Request, res: Response): Promise<Response> {
-    logger.info('Deleting user');
+// PUT (reemplazo completo) y PATCH (parcial) comparten controller:
+// la diferencia la impone el esquema Zod de cada ruta.
+export const updateExistingUser = async (
+  req: Request<IdParam, unknown, UserPatch>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const updated: PublicUser | null = await userService.updateUser(req.params.id, req.body);
+    if (!updated) {
+      throw notFound(`User '${req.params.id}' not found`);
+    }
+    res.status(200).json(updated);
+  } catch (error) {
+    next(error);
+  }
+};
 
-    const username = req.params.id;
-    const deletedUser = await userService.delete(username);
-    
+// DELETE /api/users/:id -> 204 (también cierra sus sesiones)
+export const removeUser = async (
+  req: Request<IdParam>,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const deletedUser: PublicUser | null = await userService.deleteUserById(req.params.id);
     if (!deletedUser) {
-        return res.status(404).json({ message: "User not found" });
+      throw notFound(`User '${req.params.id}' not found`);
     }
-    
-    return res.json(deletedUser);
-}
-
-export async function updateUser(req: Request, res: Response): Promise<Response> {
-    logger.info('Updating user');
-    
-    const username = req.params.id;
-    const { password } = req.body;
-
-    const updatedUser = await userService.update(username, { username, password } as IUser);
-    
-    if (!updatedUser) {
-        return res.status(404).json({ message: "User not found" });
-    }
-    
-    return res.json(updatedUser);
-}
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+};
