@@ -10,6 +10,8 @@ export const nodeEnv: string = process.env.NODE_ENV ?? 'development';
 
 export const apiPort: number = Number(process.env.PORT) || 4000;
 
+export const frontendUrl: string = process.env.FRONTEND_URL ?? 'http://localhost:4200';
+
 export const mongoUri: string =
   process.env.MONGO_URI ?? 'mongodb://127.0.0.1:27017/ea-exercise-jwt';
 

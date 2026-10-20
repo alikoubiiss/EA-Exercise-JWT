@@ -6,6 +6,7 @@ export {
   apiPort,
   mongoUri,
   nodeEnv,
+  frontendUrl,
   accessTokenSecret,
   refreshTokenSecret,
   accessTokenTtl,

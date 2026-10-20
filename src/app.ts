@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
-import { apiPort } from './config/index.js';
+import cookieParser from 'cookie-parser';
+import { apiPort, frontendUrl } from './config/index.js';
 import authRoutes from './routes/auth.routes.js';
 import userRoutes from './routes/user.routes.js';
 import { httpLogger } from './middlewares/loggerMiddleware.js';
@@ -17,8 +18,8 @@ app.set('port', apiPort);
  * MIDDLEWARES
  */
 
-// Enable CORS for all routes
-app.use(cors());
+app.use(cors({ origin: frontendUrl, credentials: true }));
+app.use(cookieParser());
 
 // Built-in middleware to parse incoming requests with JSON payloads
 app.use(express.json());

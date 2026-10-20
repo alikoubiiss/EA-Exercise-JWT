@@ -2,7 +2,6 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { accessTokenSecret, refreshTokenSecret, logger } from '../config/index.js';
 import { tokenPayloadSchema, TokenPayload, TokenType } from '../models/jwtpayload.model.js';
-import type { RefreshTokenBody } from '../models/auth.model.js';
 import type { IdParam } from '../models/http.js';
 import { ApiError, forbidden, unauthorized } from '../errors/ApiError.js';
 
@@ -87,17 +86,16 @@ export const authenticate = (req: Request, res: Response, next: NextFunction): v
 };
 
 // ------------------------------------------------------------
-// AUTENTICACIÓN con REFRESH TOKEN (body { refreshToken })
+// AUTENTICACIÓN con REFRESH TOKEN
 // ------------------------------------------------------------
 // Solo verifica firma/caducidad/tipo. Que siga existiendo en la BD
 // (no revocado) lo comprueba auth.service al rotarlo.
-export const verifyRefreshToken = (
-  req: Request<unknown, unknown, RefreshTokenBody>,
-  res: Response,
-  next: NextFunction,
-): void => {
+export const verifyRefreshToken = (req: Request, res: Response, next: NextFunction): void => {
   try {
-    const payload: TokenPayload = decodeToken(req.body.refreshToken, refreshTokenSecret, 'refresh');
+    const token: string | undefined = req.cookies?.refreshToken;
+    if (!token) throw unauthorized('No refresh token provided');
+
+    const payload: TokenPayload = decodeToken(token, refreshTokenSecret, 'refresh');
     attachUserId(req, res, payload);
     next();
   } catch (error) {

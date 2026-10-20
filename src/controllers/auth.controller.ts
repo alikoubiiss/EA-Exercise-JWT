@@ -1,16 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import * as authService from '../services/auth.service.js';
-import { logger } from '../config/index.js';
+import { logger, nodeEnv, refreshTokenTtl } from '../config/index.js';
 import { requireUserId } from '../middlewares/jwtMiddleware.js';
 import type { PublicUser } from '../models/user.model.js';
 import type { TokenPair } from '../models/jwtpayload.model.js';
 import type {
   RegisterInput,
   LoginInput,
-  RefreshTokenBody,
   ChangePasswordInput,
 } from '../models/auth.model.js';
 import type { IdParam } from '../models/http.js';
+
+const cookieOptions = {
+  httpOnly: true,
+  sameSite: 'strict' as const,
+  secure: nodeEnv === 'production',
+  path: '/api/auth',
+};
 
 /**
  * AUTH CONTROLLER
@@ -38,7 +44,7 @@ export const register = async (
   }
 };
 
-// POST /api/auth/login -> 200 { user, accessToken, refreshToken }
+// POST /api/auth/login -> 200 { token, user }
 export const login = async (
   req: Request<unknown, unknown, LoginInput>,
   res: Response,
@@ -46,7 +52,11 @@ export const login = async (
 ): Promise<void> => {
   try {
     const { user, tokens } = await authService.login(req.body);
-    res.status(200).json({ user, ...tokens });
+    res.cookie('refreshToken', tokens.refreshToken, {
+      ...cookieOptions,
+      maxAge: refreshTokenTtl * 1000,
+    });
+    res.status(200).json({ token: tokens.accessToken, user });
   } catch (error) {
     next(error);
   } finally {
@@ -54,17 +64,21 @@ export const login = async (
   }
 };
 
-// POST /api/auth/refresh -> 200 { accessToken, refreshToken }
+// POST /api/auth/refresh -> 200 { token }
 // Forma 1: leemos el id que el middleware dejó en `req.userId`.
 export const refresh = async (
-  req: Request<unknown, unknown, RefreshTokenBody>,
+  req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
   try {
     const userId: string = requireUserId(req.userId);
-    const tokens: TokenPair = await authService.rotateRefreshToken(userId, req.body.refreshToken);
-    res.status(200).json(tokens);
+    const tokens: TokenPair = await authService.rotateRefreshToken(userId, req.cookies.refreshToken);
+    res.cookie('refreshToken', tokens.refreshToken, {
+      ...cookieOptions,
+      maxAge: refreshTokenTtl * 1000,
+    });
+    res.status(200).json({ token: tokens.accessToken });
   } catch (error) {
     next(error);
   } finally {
@@ -75,13 +89,14 @@ export const refresh = async (
 // POST /api/auth/logout -> 204 No Content
 // Forma 2: leemos el id de `res.locals.userId`.
 export const logout = async (
-  req: Request<unknown, unknown, RefreshTokenBody>,
+  req: Request,
   res: Response,
   next: NextFunction,
 ): Promise<void> => {
   try {
     const userId: string = requireUserId(res.locals.userId);
-    await authService.revokeRefreshToken(userId, req.body.refreshToken);
+    await authService.revokeRefreshToken(userId, req.cookies.refreshToken);
+    res.clearCookie('refreshToken', cookieOptions);
     res.status(204).send();
   } catch (error) {
     next(error);

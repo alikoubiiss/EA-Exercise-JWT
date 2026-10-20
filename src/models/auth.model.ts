@@ -19,14 +19,6 @@ export const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 });
 
-// POST /auth/refresh y POST /auth/logout
-// El refresh token viaja en el BODY (el header Authorization queda
-// reservado para el access token). En producción, mejor una cookie
-// httpOnly + secure para que JavaScript no pueda leerlo (XSS).
-export const refreshTokenBodySchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
-});
-
 // PUT /users/:id/password
 export const changePasswordSchema = z
   .object({
@@ -40,5 +32,4 @@ export const changePasswordSchema = z
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
-export type RefreshTokenBody = z.infer<typeof refreshTokenBodySchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

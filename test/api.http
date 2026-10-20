@@ -25,7 +25,7 @@ Content-Type: application/json
     "password": "testpass123"
 }
 
-### Login (200 { user, accessToken, refreshToken })
+### Login (200 { token, user })
 # @name login
 POST {{base}}/auth/login
 Content-Type: application/json
@@ -37,8 +37,7 @@ Content-Type: application/json
 
 ###
 @userId = {{login.response.body.user._id}}
-@access_token = {{login.response.body.accessToken}}
-@refresh_token = {{login.response.body.refreshToken}}
+@access_token = {{login.response.body.token}}
 
 ### Login con usuario del seed (Bill, ADMIN)
 POST {{base}}/auth/login
@@ -58,23 +57,11 @@ Content-Type: application/json
     "password": "wrongpassword"
 }
 
-### Refresh: ROTA el refresh token (devuelve un par nuevo).
-### Ejecutarlo dos veces con el mismo token -> 401 TOKEN_REVOKED
-# @name refresh
+### Refresh (200)
 POST {{base}}/auth/refresh
-Content-Type: application/json
 
-{
-    "refreshToken": "{{refresh_token}}"
-}
-
-### Logout: revoca el refresh token en la BD (204)
+### Logout (204)
 POST {{base}}/auth/logout
-Content-Type: application/json
-
-{
-    "refreshToken": "{{refresh.response.body.refreshToken}}"
-}
 
 ### Cambio de contraseña: solo el propio usuario (204).
 ### Cierra todas sus sesiones (revoca sus refresh tokens).
